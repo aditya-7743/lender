@@ -10,6 +10,7 @@ import { useLang } from '../context/LangContext';
 import { useToast } from '../hooks/useToast';
 import { exportCustomerPDF } from '../utils/pdfExport';
 import AddTransactionModal from '../components/AddTransactionModal';
+import EditTransactionModal from '../components/EditTransactionModal';
 import AddCustomerModal from '../components/AddCustomerModal';
 import UPIQRModal from '../components/UPIQRModal';
 import InterestModal from '../components/InterestModal';
@@ -25,8 +26,8 @@ export default function CustomerDetail() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [txModalType, setTxModalType] = useState(null);
+  const [editingTx, setEditingTx] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUPIModal, setShowUPIModal] = useState(false);
   const [showInterestModal, setShowInterestModal] = useState(false);
   const [lastTx, setLastTx] = useState(null); // for undo
@@ -59,22 +60,70 @@ export default function CustomerDetail() {
 
   async function addTransaction({ type, amount, note, date }) {
     try {
-      const change = type === 'credit' ? amount : -amount;
+      // LOGIC UPDATE:
+      // Credit (You Gave/Lena) -> Negative Balance
+      // Debit (You Got/Dena/Payment) -> Positive Balance
+
+      const isCredit = type === 'credit';
+      const finalAmount = isCredit ? -Math.abs(amount) : Math.abs(amount);
+
       const txRef = await addDoc(collection(db, 'users', user.uid, 'customers', id, 'transactions'), {
-        type, amount, note: note.trim(), date, createdAt: serverTimestamp()
+        type,
+        amount: Math.abs(amount), // Store absolute amount for display
+        netAmount: finalAmount,   // Store signed amount for calculations
+        note: note.trim(),
+        date,
+        createdAt: serverTimestamp()
       });
-      const newBalance = (customer.balance || 0) + change;
+
+      const newBalance = (customer.balance || 0) + finalAmount;
       await updateDoc(doc(db, 'users', user.uid, 'customers', id), { balance: newBalance, lastActivity: serverTimestamp() });
 
       // Setup undo
-      setLastTx({ id: txRef.id, type, amount, change });
+      setLastTx({ id: txRef.id, type, amount, change: finalAmount });
       setShowUndo(true);
       if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
       undoTimerRef.current = setTimeout(() => { setShowUndo(false); setLastTx(null); }, 8000);
 
-      showToast(type === 'credit' ? `₹${amount} lena record! ✅` : `₹${amount} dena record! ✅`);
+      showToast(type === 'credit' ? `₹${amount} Udhaari Diya! 🔴` : `₹${amount} Payment Aayi! 🟢`);
       setTxModalType(null);
     } catch { showToast('Kuch gadbad. Try again.', 'error'); }
+  }
+
+  async function updateTransaction(txId, newData) {
+    try {
+      const oldTx = transactions.find(t => t.id === txId);
+      if (!oldTx) return;
+
+      // Calculate balance difference
+      const oldVal = oldTx.type === 'credit' ? -Math.abs(oldTx.amount) : Math.abs(oldTx.amount);
+      // If newData.amount is present, use it, else use old amount
+      const newAmountAbs = newData.amount ? Math.abs(newData.amount) : Math.abs(oldTx.amount);
+      // If newData.date is present use it
+
+      // We assume type doesn't change in current edit modal, only amount/date/note
+      const newVal = oldTx.type === 'credit' ? -newAmountAbs : newAmountAbs;
+
+      const diff = newVal - oldVal;
+
+      await updateDoc(doc(db, 'users', user.uid, 'customers', id, 'transactions', txId), {
+        ...newData,
+        amount: newAmountAbs,
+        netAmount: newVal
+      });
+
+      if (diff !== 0) {
+        await updateDoc(doc(db, 'users', user.uid, 'customers', id), {
+          balance: (customer.balance || 0) + diff
+        });
+      }
+
+      showToast('Transaction updated! ✅');
+      setEditingTx(null);
+    } catch (e) {
+      console.error(e);
+      showToast('Update fail hua', 'error');
+    }
   }
 
   async function undoLastTx() {
@@ -92,9 +141,13 @@ export default function CustomerDetail() {
 
   async function deleteTransaction(tx) {
     try {
-      const change = tx.type === 'credit' ? -tx.amount : tx.amount;
+      // Logic: Credit was Negative, Debit was Positive
+      // To reverse, we subtract the netAmount
+      // If old format (no netAmount), derive it from type
+      const val = tx.netAmount !== undefined ? tx.netAmount : (tx.type === 'credit' ? -tx.amount : tx.amount);
+
       await deleteDoc(doc(db, 'users', user.uid, 'customers', id, 'transactions', tx.id));
-      await updateDoc(doc(db, 'users', user.uid, 'customers', id), { balance: (customer.balance || 0) + change });
+      await updateDoc(doc(db, 'users', user.uid, 'customers', id), { balance: (customer.balance || 0) - val });
       showToast('Transaction delete ho gaya');
     } catch { showToast('Delete nahi hua', 'error'); }
   }
@@ -102,20 +155,11 @@ export default function CustomerDetail() {
   async function editCustomer(name, phone, tag, dueDate) {
     try {
       await updateDoc(doc(db, 'users', user.uid, 'customers', id), {
-        name: name.trim(), phone: phone.trim(),
-        tag: tag || 'regular',
-        dueDate: dueDate || null
+        name: name.trim(), phone: phone.trim(), tag: tag || 'regular', dueDate: dueDate || null
       });
       showToast('Customer update! ✅');
       setShowEditModal(false);
     } catch { showToast('Update nahi hua', 'error'); }
-  }
-
-  async function deleteCustomer() {
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'customers', id));
-      navigate('/');
-    } catch { showToast('Delete nahi hua', 'error'); }
   }
 
   async function handlePDFExport() {
@@ -125,25 +169,6 @@ export default function CustomerDetail() {
       await exportCustomerPDF(customer, transactions, bizName);
     } catch (e) { showToast('PDF export fail hua', 'error'); }
     setExporting(false);
-  }
-
-  function sendWhatsApp() {
-    if (!customer?.phone) { showToast('Phone number nahi hai!', 'error'); return; }
-    const bal = customer.balance || 0;
-    const msg = bal > 0
-      ? `Namaste ${customer.name} ji! 🙏\n\nAapka ₹${Math.abs(bal).toLocaleString('en-IN')} hamara baaki hai.\n\nKripya jaldi bhejna. 🙏\n\n— Udhaari App`
-      : `Namaste ${customer.name} ji! 🙏\n\nHamne aapka ₹${Math.abs(bal).toLocaleString('en-IN')} dena hai. Jald milenge!\n\n— Udhaari App`;
-    const phone = customer.phone.replace(/\D/g, '');
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-  }
-
-  function sendSMS() {
-    if (!customer?.phone) { showToast('Phone number nahi hai!', 'error'); return; }
-    const bal = customer.balance || 0;
-    const msg = bal > 0
-      ? `${customer.name} ji, aapka Rs.${Math.abs(bal)} baaki hai. -Udhaari App`
-      : `${customer.name} ji, hum aapko Rs.${Math.abs(bal)} denge. -Udhaari App`;
-    window.open(`sms:${customer.phone}?body=${encodeURIComponent(msg)}`);
   }
 
   function formatDate(tx) {
@@ -160,24 +185,14 @@ export default function CustomerDetail() {
 
   const bal = customer.balance || 0;
   const initials = customer.name?.slice(0, 2).toUpperCase() || '??';
-  const today = new Date().toISOString().split('T')[0];
-  const isOverdue = customer.dueDate && customer.dueDate < today && bal > 0;
 
   const filteredTx = transactions.filter(tx =>
     !txSearch || tx.note?.toLowerCase().includes(txSearch.toLowerCase()) ||
     String(tx.amount).includes(txSearch)
   );
 
-  // Running balance
-  let running = bal;
-  const txWithRunning = filteredTx.map(tx => {
-    const snapshot = running;
-    running = running - (tx.type === 'credit' ? tx.amount : -tx.amount);
-    return { ...tx, runningBalance: snapshot };
-  });
-
   // Group transactions by date
-  const groupedTx = txWithRunning.reduce((groups, tx) => {
+  const groupedTx = filteredTx.reduce((groups, tx) => {
     const date = formatDate(tx);
     if (!groups[date]) groups[date] = [];
     groups[date].push(tx);
@@ -185,7 +200,7 @@ export default function CustomerDetail() {
   }, {});
 
   return (
-    <div className="page" style={{ paddingBottom: 80, background: '#f0f2f5' }}>
+    <div className="page" style={{ paddingBottom: 80, background: '#f8fafc' }}>
       {Toast}
 
       {/* Undo Bar */}
@@ -207,7 +222,7 @@ export default function CustomerDetail() {
           <div className="header-avatar">{initials}</div>
           <div className="header-info">
             <div className="header-name">{customer.name}</div>
-            <div className="header-status">View Profile ›</div>
+            <div className="header-status">View Settings ›</div>
           </div>
         </div>
         <div className="header-actions">
@@ -217,29 +232,27 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      <div className="page-content" style={{ padding: '10px' }}>
-        {/* Balance Summary Card - Simplified */}
+      <div className="page-content" style={{ padding: '12px' }}>
+        {/* Balance Summary Card */}
         <div className="balance-summary-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="bs-label">Net Balance</span>
-            <span className={`bs-amount ${bal >= 0 ? 'positive' : 'negative'}`}>
-              {bal >= 0 ? '+' : '-'}₹{Math.abs(bal).toLocaleString('en-IN')}
+            <span className={`bs-amount ${bal < 0 ? 'negative' : 'positive'}`}>
+              {bal < 0 ? '-' : '+'}₹{Math.abs(bal).toLocaleString('en-IN')}
             </span>
           </div>
           <div className="bs-footer">
-            {bal > 0 ? 'You will get' : bal < 0 ? 'You will give' : 'Settled'}
+            {bal < 0 ? 'You will get (Lena hai)' : bal > 0 ? 'You will give (Dena hai)' : 'Settled'}
           </div>
         </div>
 
         {/* Transaction Search */}
-        <div className="search-bar" style={{ marginBottom: '12px' }}>
-          <span className="search-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-            </svg>
-          </span>
-          <input className="input" type="text" placeholder="Transaction search..." value={txSearch} onChange={e => setTxSearch(e.target.value)} style={{ fontSize: '0.875rem' }} />
-          {txSearch && <button onClick={() => setTxSearch('')} className="search-clear">×</button>}
+        <div className="search-container">
+          <div className="search-bar" style={{ marginBottom: '16px' }}>
+            <span className="search-icon">🔍</span>
+            <input className="input" type="text" placeholder="Search transactions..." value={txSearch} onChange={e => setTxSearch(e.target.value)} style={{ fontSize: '0.9rem' }} />
+            {txSearch && <button onClick={() => setTxSearch('')} className="search-clear">×</button>}
+          </div>
         </div>
 
         {/* Transaction List (Chat Style) */}
@@ -256,7 +269,13 @@ export default function CustomerDetail() {
               <div key={date}>
                 <div className="date-pill"><span>{date}</span></div>
                 {txs.map((tx, i) => (
-                  <TxItem key={tx.id} tx={tx} index={i} onDelete={() => deleteTransaction(tx)} />
+                  <TxItem
+                    key={tx.id}
+                    tx={tx}
+                    index={i}
+                    onDelete={() => deleteTransaction(tx)}
+                    onEdit={() => setEditingTx(tx)}
+                  />
                 ))}
               </div>
             ))
@@ -264,46 +283,33 @@ export default function CustomerDetail() {
         </div>
 
         {/* Extra Action Buttons */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px', marginTop: '20px' }}>
-          <button
-            className="extra-btn"
-            onClick={() => setShowUPIModal(true)}
-          >
-            <span>📲</span>
-            <span>UPI QR</span>
+        <div className="quick-actions-grid">
+          <button className="extra-btn" onClick={() => setShowUPIModal(true)}>
+            <span>📲</span><span>UPI QR</span>
           </button>
-          <button
-            className="extra-btn"
-            onClick={() => setShowInterestModal(true)}
-          >
-            <span>🧮</span>
-            <span>Interest</span>
+          <button className="extra-btn" onClick={() => setShowInterestModal(true)}>
+            <span>🧮</span><span>Interest</span>
           </button>
-          <button
-            className="extra-btn"
-            onClick={handlePDFExport}
-            disabled={exporting}
-          >
-            <span>{exporting ? '⏳' : '📄'}</span>
-            <span>PDF</span>
+          <button className="extra-btn" onClick={handlePDFExport} disabled={exporting}>
+            <span>{exporting ? '⏳' : '📄'}</span><span>PDF</span>
           </button>
         </div>
       </div>
 
       {/* Fixed Bottom Action Bar */}
       <div className="bottom-action-bar">
-        <button className="action-btn btn-given" onClick={() => setTxModalType('debit')}>
+        <button className="action-btn btn-given" onClick={() => setTxModalType('credit')}>
           <span className="action-icon">🔴</span>
           <div className="action-text">
             <span className="action-title">You Gave</span>
-            <span className="action-sub">Customer Got</span>
+            <span className="action-sub">Udhaari Di</span>
           </div>
         </button>
-        <button className="action-btn btn-received" onClick={() => setTxModalType('credit')}>
+        <button className="action-btn btn-received" onClick={() => setTxModalType('debit')}>
           <span className="action-icon">🟢</span>
           <div className="action-text">
             <span className="action-title">You Got</span>
-            <span className="action-sub">Customer Gave</span>
+            <span className="action-sub">Payment Aayi</span>
           </div>
         </button>
       </div>
@@ -317,95 +323,128 @@ export default function CustomerDetail() {
           defaultType={txModalType}
         />
       )}
+      {editingTx && (
+        <EditTransactionModal
+          transaction={editingTx}
+          onClose={() => setEditingTx(null)}
+          onSave={updateTransaction}
+        />
+      )}
       {showEditModal && <EditCustomerModal onClose={() => setShowEditModal(false)} onSave={editCustomer} customer={customer} />}
       {showUPIModal && <UPIQRModal onClose={() => setShowUPIModal(false)} customerName={customer.name} amount={Math.abs(bal) > 0 ? Math.abs(bal) : ''} />}
       {showInterestModal && <InterestModal onClose={() => setShowInterestModal(false)} defaultPrincipal={Math.abs(bal) > 0 ? Math.abs(bal) : ''} />}
 
       <style>{`
         .chat-header {
-          display: flex; align-items: center; padding: 10px 16px;
+          display: flex; align-items: center; padding: 12px 16px;
           background: white; border-bottom: 1px solid var(--border);
           position: sticky; top: 0; z-index: 10;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.03);
         }
-        .header-user { display: flex; align-items: center; flex: 1; margin-left: 10px; cursor: pointer; }
+        .header-user { display: flex; align-items: center; flex: 1; margin-left: 12px; cursor: pointer; }
         .header-avatar {
-          width: 36px; height: 36px; border-radius: 50%;
-          background: var(--bg-surface); color: var(--text-primary);
+          width: 42px; height: 42px; border-radius: 50%;
+          background: linear-gradient(135deg, #4f46e5, #4338ca); color: white;
           display: flex; align-items: center; justify-content: center;
-          font-weight: 600; margin-right: 10px;
+          font-weight: 700; margin-right: 12px; font-size: 1.1rem;
+          box-shadow: 0 4px 10px rgba(79,70,229,0.3);
         }
-        .header-name { font-weight: 700; font-size: 1rem; }
-        .header-status { font-size: 0.75rem; color: var(--text-muted); }
+        .header-name { font-weight: 700; font-size: 1.05rem; color: #1e293b; }
+        .header-status { font-size: 0.8rem; color: #64748b; margin-top: 2px; font-weight: 500; }
 
         .balance-summary-card {
-          background: white; padding: 16px; border-radius: 12px; margin-bottom: 20px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+          background: white; padding: 20px; border-radius: 16px; margin-bottom: 24px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.02);
+          transition: transform 0.2s;
         }
-        .bs-label { font-size: 0.9rem; color: var(--text-muted); }
-        .bs-amount { font-size: 1.2rem; font-weight: 700; }
-        .bs-amount.positive { color: var(--green-light); }
-        .bs-amount.negative { color: var(--red-soft); }
-        .bs-footer { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+        .balance-summary-card:active { transform: scale(0.98); }
+        .bs-label { font-size: 0.95rem; color: #64748b; font-weight: 600; }
+        .bs-amount { font-size: 2rem; font-weight: 800; letter-spacing: -0.5px; }
+        .bs-amount.positive { color: #16a34a; }
+        .bs-amount.negative { color: #dc2626; }
+        .bs-footer { font-size: 0.9rem; color: #64748b; margin-top: 8px; font-weight: 600; }
 
-        /* Chat Styles */
-        .date-pill { display: flex; justify-content: center; margin: 16px 0; }
+        .date-pill { display: flex; justify-content: center; margin: 24px 0; }
         .date-pill span {
-          background: #e5e7eb; color: #555; padding: 4px 12px;
-          border-radius: 12px; font-size: 0.75rem; font-weight: 600;
+          background: #e2e8f0; color: #475569; padding: 6px 14px;
+          border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
         .chat-bubble {
-          max-width: 80%; padding: 10px 14px; margin-bottom: 12px;
-          border-radius: 12px; position: relative; font-size: 0.9rem;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+          max-width: 85%; padding: 14px 18px; margin-bottom: 16px;
+          border-radius: 16px; position: relative; font-size: 1rem;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+          animation: slideIn 0.3s ease-out forwards;
+          cursor: pointer; transition: transform 0.1s;
         }
+        .chat-bubble:active { transform: scale(0.98); }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
         .chat-bubble.given {
-           margin-left: auto; background: #fee2e2; color: #7f1d1d;
-           border-bottom-right-radius: 2px;
+           margin-left: auto; 
+           background: #fef2f2; border: 1px solid #fee2e2;
+           color: #991b1b; border-bottom-right-radius: 4px;
         }
         .chat-bubble.received {
-           margin-right: auto; background: #dcfce7; color: #14532d;
-           border-bottom-left-radius: 2px;
+           margin-right: auto; 
+           background: #f0fdf4; border: 1px solid #dcfce7;
+           color: #166534; border-bottom-left-radius: 4px;
         }
         
-        .chat-amount { font-weight: 700; font-size: 1.1rem; display: block; margin-bottom: 4px; }
-        .chat-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; opacity: 0.8; }
+        .chat-amount { font-weight: 800; font-size: 1.25rem; display: block; margin-bottom: 6px; }
+        .chat-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; opacity: 0.8; font-weight: 500; }
         
         .bottom-action-bar {
           position: fixed; bottom: 0; left: 0; right: 0;
           background: white; border-top: 1px solid var(--border);
           padding: 12px 16px; display: flex; gap: 12px;
-          z-index: 20; box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
+          z-index: 20; box-shadow: 0 -4px 24px rgba(0,0,0,0.1);
         }
         .action-btn {
-          flex: 1; border: none; padding: 10px; border-radius: 8px;
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-          cursor: pointer; transition: transform 0.1s;
+          flex: 1; border: none; padding: 14px; border-radius: 14px;
+          display: flex; align-items: center; justify-content: center; gap: 12px;
+          cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
-        .action-btn:active { transform: scale(0.98); }
-        .btn-given { background: #fee2e2; color: #ef4444; }
-        .btn-received { background: #dcfce7; color: #22c55e; }
-        .action-text { text-align: left; line-height: 1.2; }
-        .action-title { display: block; font-weight: 700; font-size: 0.9rem; }
-        .action-sub { display: block; font-size: 0.7rem; opacity: 0.8; }
-        .action-icon { font-size: 1.2rem; }
+        .action-btn:active { transform: scale(0.96); box-shadow: none; }
+        
+        .btn-given { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+        .btn-received { background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0; }
+        
+        .action-text { text-align: left; line-height: 1.25; }
+        .action-title { display: block; font-weight: 800; font-size: 1rem; }
+        .action-sub { display: block; font-size: 0.75rem; font-weight: 600; opacity: 0.9; }
+        .action-icon { font-size: 1.6rem; }
 
+        .quick-actions-grid {
+          display: grid; gridTemplateColumns: '1fr 1fr 1fr'; gap: 12px; margin-bottom: 20px;
+        }
+        .extra-btn {
+          background: white; border: 1px solid var(--border);
+          border-radius: 12px; padding: 12px;
+          display: flex; flex-direction: column; align-items: center; gap: 6px;
+          font-size: 0.8rem; font-weight: 600; color: #475569;
+          cursor: pointer; transition: all 0.2s;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+        }
+        .extra-btn:active { transform: scale(0.95); background: #f8fafc; }
       `}</style>
     </div>
   );
 }
 
-function TxItem({ tx, index, onDelete }) {
+function TxItem({ tx, index, onDelete, onEdit }) {
   const isGiven = tx.type === 'credit';
   return (
-    <div className={`chat-bubble ${isGiven ? 'given' : 'received'}`} onClick={onDelete}>
+    <div className={`chat-bubble ${isGiven ? 'given' : 'received'}`} onClick={() => onEdit(tx)}>
       <span className="chat-amount">₹{tx.amount?.toLocaleString('en-IN')}</span>
       <div className="chat-content">
-        {tx.note && <div style={{ marginBottom: 4 }}>{tx.note}</div>}
+        {tx.note && <div style={{ marginBottom: 6 }}>{tx.note}</div>}
       </div>
       <div className="chat-meta">
         <span>{new Date(tx.createdAt?.toDate ? tx.createdAt.toDate() : tx.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-        <span>{isGiven ? '↗' : '↙'}</span>
+        <div onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ opacity: 0.7, cursor: 'pointer', padding: '4px' }}>🗑️</div>
       </div>
     </div>
   );
@@ -458,7 +497,6 @@ function EditCustomerModal({ onClose, onSave, customer }) {
           <div className="input-group">
             <label>Due Date (Optional)</label>
             <input className="input" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-            {dueDate && <button type="button" onClick={() => setDueDate('')} style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', marginTop: '4px' }}>× Remove due date</button>}
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button type="button" className="btn btn-outline" onClick={onClose} style={{ flex: 1 }}>Cancel</button>
