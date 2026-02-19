@@ -19,80 +19,73 @@ export default function AddTransactionModal({ onClose, onAdd, customerName, defa
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-handle" />
-        <h2 className="modal-title">💸 Naya Transaction</h2>
-        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '-12px', marginBottom: '20px' }}>
-          {customerName} ke saath
-        </p>
+
+        <h2 className="modal-title">
+          {type === 'credit' ? '🔴 You Gave (Udhaari)' : '🟢 You Got (Payment)'}
+        </h2>
 
         {/* Type Toggle */}
         <div className="tx-type-toggle">
           <button
             type="button"
-            className={`tx-type-btn credit ${type === 'credit' ? 'active' : ''}`}
+            className={`type-btn ${type === 'credit' ? 'active credit' : ''}`}
             onClick={() => setType('credit')}
           >
-            <span className="tx-type-icon">⬇️</span>
-            <span className="tx-type-label">Unhone Diya</span>
-            <span className="tx-type-sub">(Tumhara Lena)</span>
+            🔴 You Gave
           </button>
           <button
             type="button"
-            className={`tx-type-btn debit ${type === 'debit' ? 'active' : ''}`}
+            className={`type-btn ${type === 'debit' ? 'active debit' : ''}`}
             onClick={() => setType('debit')}
           >
-            <span className="tx-type-icon">⬆️</span>
-            <span className="tx-type-label">Tumne Diya</span>
-            <span className="tx-type-sub">(Tumhara Dena)</span>
+            🟢 You Got
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="input-group" style={{ marginTop: '20px' }}>
-            <label>Amount (₹) *</label>
+        <form onSubmit={handleSubmit} style={{ marginTop: 20 }}>
+          <div className="input-group">
+            <label>Amount (₹)</label>
             <input
-              className="input"
+              className="input amount-input"
               type="number"
-              placeholder="0"
               value={amount}
               onChange={e => setAmount(e.target.value)}
-              min="1"
-              step="0.01"
+              placeholder="0"
               required
               autoFocus
-              style={{ fontSize: '1.4rem', fontWeight: '700', textAlign: 'center' }}
             />
           </div>
+
           <div className="input-group">
             <label>Note (Optional)</label>
             <input
               className="input"
               type="text"
-              placeholder="Jaise: grocery ka, rent ka, udhaar..."
               value={note}
               onChange={e => setNote(e.target.value)}
+              placeholder={type === 'credit' ? "Kya diya? (e.g. Chai, Samosa)" : "Kis cheez ka payment? (e.g. Cash, UPI)"}
             />
           </div>
+
           <div className="input-group">
             <label>Date</label>
             <input
               className="input"
-              type="date"
+              type="datetime-local"
               value={date}
               onChange={e => setDate(e.target.value)}
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-            <button type="button" className="btn btn-outline" onClick={onClose} style={{ flex: 1 }}>
-              Cancel
-            </button>
+          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+            <button type="button" className="btn btn-outline" onClick={onClose} style={{ flex: 1 }}>Close</button>
             <button
               type="submit"
-              className={`btn ${type === 'credit' ? 'btn-green' : 'btn-red-tx'}`}
+              className={`btn ${type === 'credit' ? 'btn-red-tx' : 'btn-green'}`}
               style={{ flex: 2 }}
               disabled={loading || !amount}
             >
-              {loading ? <span className="spinner" /> : `₹${amount || '0'} ${type === 'credit' ? 'Lena Record' : 'Dena Record'}`}
+              {loading ? <span className="spinner" /> : `Save ${type === 'credit' ? 'Udhaari' : 'Payment'}`}
             </button>
           </div>
         </form>
@@ -100,65 +93,22 @@ export default function AddTransactionModal({ onClose, onAdd, customerName, defa
 
       <style>{`
         .tx-type-toggle {
-          display: flex;
-          gap: 10px;
+          display: flex; background: #f3f4f6; padding: 4px; border-radius: 12px;
+          margin-bottom: 20px;
         }
-        .tx-type-btn {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 4px;
-          padding: 14px 10px;
-          border-radius: var(--radius);
-          border: 2px solid var(--border);
-          background: var(--bg-surface);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          font-family: var(--font);
+        .type-btn {
+          flex: 1; border: none; padding: 10px; border-radius: 8px;
+          background: transparent; color: #6b7280; font-weight: 600;
+          cursor: pointer; transition: all 0.2s;
         }
-        .tx-type-btn.credit.active {
-          border-color: var(--green);
-          background: rgba(16,185,129,0.1);
-        }
-        .tx-type-btn.debit.active {
-          border-color: var(--red);
-          background: rgba(239,68,68,0.1);
-        }
-        .tx-type-icon { font-size: 1.3rem; }
-        .tx-type-label {
-          font-size: 0.85rem;
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-        .tx-type-sub {
-          font-size: 0.7rem;
-          color: var(--text-muted);
-        }
-        .btn-green {
-          background: linear-gradient(135deg, #059669, #10B981);
-          color: white;
-          border: none;
-          box-shadow: 0 4px 16px rgba(16,185,129,0.3);
-          cursor: pointer;
-          display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-          padding: 14px 20px; border-radius: var(--radius-sm);
-          font-family: var(--font); font-size: 0.95rem; font-weight: 600;
-          transition: all 0.2s; width: 100%;
-        }
-        .btn-red-tx {
-          background: linear-gradient(135deg, #DC2626, #EF4444);
-          color: white;
-          border: none;
-          box-shadow: 0 4px 16px rgba(239,68,68,0.3);
-          cursor: pointer;
-          display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-          padding: 14px 20px; border-radius: var(--radius-sm);
-          font-family: var(--font); font-size: 0.95rem; font-weight: 600;
-          transition: all 0.2s; width: 100%;
-        }
-        .btn-green:disabled, .btn-red-tx:disabled { opacity: 0.5; }
-        .btn-green:active, .btn-red-tx:active { transform: scale(0.97); }
+        .type-btn.active { background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); color: #1f2937; }
+        .type-btn.active.credit { color: #dc2626; border: 1px solid #fecaca; background: #fef2f2; }
+        .type-btn.active.debit { color: #16a34a; border: 1px solid #bbf7d0; background: #f0fdf4; }
+        
+        .amount-input { font-size: 1.5rem; font-weight: 700; text-align: center; color: #1f2937; }
+        
+        .btn-red-tx { background: #fee2e2; color: #dc2626; border: none; font-weight: 700; }
+        .btn-green { background: #dcfce7; color: #16a34a; border: none; font-weight: 700; }
       `}</style>
     </div>
   );
