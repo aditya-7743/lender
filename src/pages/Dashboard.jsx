@@ -55,17 +55,18 @@ export default function Dashboard() {
   }
 
   const today = new Date().toISOString().split('T')[0];
-  const overdueCustomers = customers.filter(c => c.dueDate && c.dueDate < today && c.balance > 0);
+  const overdueCustomers = customers.filter(c => c.dueDate && c.dueDate < today && c.balance < 0);
 
   // LOGIC UPDATE: 
-  // Balance < 0 : Customer owes us (Lene hain) -> Red/Negative in DB but "Positive Asset" for us
-  // Balance > 0 : We owe customer (Dene hain) -> Green/Positive in DB but "Liability" for us
+  // Balance < 0 : Customer owes us (Lene hain) -> Asset -> Red/Negative
+  // Balance > 0 : We owe customer (Dene hain) -> Liability -> Green/Positive
 
   const totalLena = customers.reduce((s, c) => c.balance < 0 ? s + Math.abs(c.balance) : s, 0);
   const totalDena = customers.reduce((s, c) => c.balance > 0 ? s + c.balance : s, 0);
-  // Net Balance: (Lene - Dene)
-  // If result is Positive (More Lene than Dene) -> Good
-  const netBalance = totalLena - totalDena;
+
+  // Net Balance = Sum of all balances directly
+  // If result is Negative (-400) -> We need to take 400.
+  const netBalance = customers.reduce((s, c) => s + (c.balance || 0), 0);
 
   function applyFilter(list) {
     if (filter === 'lena') return list.filter(c => c.balance < 0);
@@ -116,13 +117,13 @@ export default function Dashboard() {
             <span className="nb-count">{customers.length} Accounts</span>
           </div>
           <div className="nb-amount-row">
-            <span className={`nb-amount ${netBalance >= 0 ? 'positive' : 'negative'}`}>
-              ₹{Math.abs(netBalance).toLocaleString('en-IN')}
+            <span className={`nb-amount ${netBalance < 0 ? 'negative' : 'positive'}`}>
+              {netBalance < 0 ? '-' : '+'}₹{Math.abs(netBalance).toLocaleString('en-IN')}
             </span>
             <span className="nb-arrow">›</span>
           </div>
-          <div className={`nb-footer ${netBalance >= 0 ? 'text-green' : 'text-red'}`}>
-            {netBalance >= 0 ? 'You will get (Lena hai)' : 'You will give (Dena hai)'}
+          <div className={`nb-footer ${netBalance < 0 ? 'text-red' : 'text-green'}`}>
+            {netBalance < 0 ? 'You will get (Lena hai)' : netBalance > 0 ? 'You will give (Dena hai)' : 'Settled'}
           </div>
         </div>
 
@@ -150,6 +151,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Floating Add Button with Text */}
       <button className="fab-extended" onClick={() => setShowAddModal(true)}>
         <span style={{ fontSize: '1.2rem', marginRight: 4 }}>+</span> Add Customer
       </button>
