@@ -36,7 +36,8 @@ export default function Login() {
       }
       navigate('/');
     } catch (err) {
-      setError(getFriendlyError(err.code));
+      console.error("Login/Signup Error:", err);
+      setError(getFriendlyError(err.code) + ` (${err.code})`);
     }
     setLoading(false);
   }
@@ -154,7 +155,7 @@ export default function Login() {
         {/* Phone Form */}
         {mode === 'phone' && step === 'form' && (
           <form onSubmit={handleSendOTP}>
-            <div className="input-group" style={{marginTop: '16px'}}>
+            <div className="input-group" style={{ marginTop: '16px' }}>
               <label>Phone Number</label>
               <input
                 className="input"
@@ -175,7 +176,7 @@ export default function Login() {
         {/* OTP Verify */}
         {mode === 'phone' && step === 'otp' && (
           <form onSubmit={handleVerifyOTP}>
-            <p style={{color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '16px', marginTop: '16px', textAlign: 'center'}}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '16px', marginTop: '16px', textAlign: 'center' }}>
               OTP bheja gaya hai <strong>{phone}</strong> par
             </p>
             <div className="input-group">
@@ -194,7 +195,7 @@ export default function Login() {
             <button className="btn btn-primary" type="submit" disabled={loading}>
               {loading ? <span className="spinner" /> : 'Verify Karo'}
             </button>
-            <button type="button" className="btn btn-ghost" style={{marginTop: '10px'}} onClick={() => { setStep('form'); setError(''); }}>
+            <button type="button" className="btn btn-ghost" style={{ marginTop: '10px' }} onClick={() => { setStep('form'); setError(''); }}>
               Wapas Jao
             </button>
           </form>
