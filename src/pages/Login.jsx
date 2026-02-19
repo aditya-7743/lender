@@ -36,8 +36,7 @@ export default function Login() {
       }
       navigate('/');
     } catch (err) {
-      console.error("Login/Signup Error:", err);
-      setError(getFriendlyError(err.code) + ` (${err.code})`);
+      setError(getFriendlyError(err.code));
     }
     setLoading(false);
   }
