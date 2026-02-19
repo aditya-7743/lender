@@ -24,7 +24,7 @@ export default function CustomerDetail() {
   const [customer, setCustomer] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showTxModal, setShowTxModal] = useState(false);
+  const [txModalType, setTxModalType] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUPIModal, setShowUPIModal] = useState(false);
@@ -73,7 +73,7 @@ export default function CustomerDetail() {
       undoTimerRef.current = setTimeout(() => { setShowUndo(false); setLastTx(null); }, 8000);
 
       showToast(type === 'credit' ? `₹${amount} lena record! ✅` : `₹${amount} dena record! ✅`);
-      setShowTxModal(false);
+      setTxModalType(null);
     } catch { showToast('Kuch gadbad. Try again.', 'error'); }
   }
 
@@ -176,8 +176,16 @@ export default function CustomerDetail() {
     return { ...tx, runningBalance: snapshot };
   });
 
+  // Group transactions by date
+  const groupedTx = txWithRunning.reduce((groups, tx) => {
+    const date = formatDate(tx);
+    if (!groups[date]) groups[date] = [];
+    groups[date].push(tx);
+    return groups;
+  }, {});
+
   return (
-    <div className="page">
+    <div className="page" style={{ paddingBottom: 80, background: '#f0f2f5' }}>
       {Toast}
 
       {/* Undo Bar */}
@@ -188,63 +196,75 @@ export default function CustomerDetail() {
         </div>
       )}
 
-      <div className="page-header">
+      {/* Header */}
+      <div className="chat-header">
         <button onClick={() => navigate('/')} className="icon-btn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <polyline points="15,18 9,12 15,6"/>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: '1.1rem', fontWeight: '700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {customer.name}
-          </h1>
-          {customer.phone && <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{customer.phone}</p>}
+        <div className="header-user" onClick={() => navigate(`/customer/${id}/profile`)}>
+          <div className="header-avatar">{initials}</div>
+          <div className="header-info">
+            <div className="header-name">{customer.name}</div>
+            <div className="header-status">View Profile ›</div>
+          </div>
         </div>
-        <button onClick={() => setShowEditModal(true)} className="icon-btn">✏️</button>
+        <div className="header-actions">
+          {customer.phone && (
+            <button className="icon-btn" onClick={() => window.open(`tel:${customer.phone}`)}>📞</button>
+          )}
+        </div>
       </div>
 
-      <div className="page-content">
-        {/* Balance Card */}
-        <div className={`cust-balance-card fade-in ${isOverdue ? 'overdue-card' : ''}`}>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-            {customer.tag && customer.tag !== 'regular' && (
-              <span className={`badge badge-${customer.tag === 'vip' ? 'gold' : customer.tag === 'defaulter' ? 'red' : 'purple'}`}>
-                {customer.tag === 'vip' ? '⭐ VIP' : customer.tag === 'defaulter' ? '🚩 Defaulter' : customer.tag}
-              </span>
-            )}
-            {isOverdue && <span className="badge badge-red">⚠️ Overdue</span>}
-            {customer.dueDate && !isOverdue && bal > 0 && (
-              <span className="badge badge-gold">📅 Due: {new Date(customer.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-            )}
+      <div className="page-content" style={{ padding: '10px' }}>
+        {/* Balance Summary Card - Simplified */}
+        <div className="balance-summary-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="bs-label">Net Balance</span>
+            <span className={`bs-amount ${bal >= 0 ? 'positive' : 'negative'}`}>
+              {bal >= 0 ? '+' : '-'}₹{Math.abs(bal).toLocaleString('en-IN')}
+            </span>
           </div>
+          <div className="bs-footer">
+            {bal > 0 ? 'You will get' : bal < 0 ? 'You will give' : 'Settled'}
+          </div>
+        </div>
 
-          <div className="cust-avatar-lg">{initials}</div>
-          <div className={`cust-balance-amount ${bal >= 0 ? 'positive' : 'negative'}`}>
-            {bal >= 0 ? '+' : '-'}₹{Math.abs(bal).toLocaleString('en-IN')}
-          </div>
-          <div className="cust-balance-status">
-            {bal > 0 ? `${customer.name} ko dena hai tumhe`
-              : bal < 0 ? `Tumhe dena hai ${customer.name} ko`
-              : 'Barabar hai — koi balance nahi'}
-          </div>
+        {/* Transaction Search */}
+        <div className="search-bar" style={{ marginBottom: '12px' }}>
+          <span className="search-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+            </svg>
+          </span>
+          <input className="input" type="text" placeholder="Transaction search..." value={txSearch} onChange={e => setTxSearch(e.target.value)} style={{ fontSize: '0.875rem' }} />
+          {txSearch && <button onClick={() => setTxSearch('')} className="search-clear">×</button>}
+        </div>
 
-          <div className="cust-actions">
-            <button className="cust-action-btn whatsapp" onClick={sendWhatsApp} disabled={!customer.phone}>
-              <span>💬</span> WhatsApp
-            </button>
-            <button className="cust-action-btn sms" onClick={sendSMS} disabled={!customer.phone}>
-              <span>📱</span> SMS
-            </button>
-            <button className="cust-action-btn call"
-              onClick={() => customer.phone && window.open(`tel:${customer.phone}`)}
-              disabled={!customer.phone}>
-              <span>📞</span> Call
-            </button>
-          </div>
+        {/* Transaction List (Chat Style) */}
+        <div className="chat-container">
+          {loading ? (
+            <div className="spinner" style={{ margin: '20px auto' }} />
+          ) : filteredTx.length === 0 ? (
+            <div className="empty-state-chat">
+              <p>No transactions yet.</p>
+              <p>Start by adding a transaction below.</p>
+            </div>
+          ) : (
+            Object.entries(groupedTx).map(([date, txs]) => (
+              <div key={date}>
+                <div className="date-pill"><span>{date}</span></div>
+                {txs.map((tx, i) => (
+                  <TxItem key={tx.id} tx={tx} index={i} onDelete={() => deleteTransaction(tx)} />
+                ))}
+              </div>
+            ))
+          )}
         </div>
 
         {/* Extra Action Buttons */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px', marginTop: '20px' }}>
           <button
             className="extra-btn"
             onClick={() => setShowUPIModal(true)}
@@ -268,110 +288,129 @@ export default function CustomerDetail() {
             <span>PDF</span>
           </button>
         </div>
-
-        {/* Transaction Search */}
-        <div className="search-bar" style={{ marginBottom: '12px' }}>
-          <span className="search-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-            </svg>
-          </span>
-          <input className="input" type="text" placeholder="Transaction search..." value={txSearch} onChange={e => setTxSearch(e.target.value)} style={{ fontSize: '0.875rem' }} />
-          {txSearch && <button onClick={() => setTxSearch('')} className="search-clear">×</button>}
-        </div>
-
-        {/* Transaction History */}
-        <div style={{ marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '12px' }}>
-            {t.txHistory} ({filteredTx.length})
-          </h2>
-
-          {loading ? (
-            <div className="empty-state"><div className="spinner" style={{ width: 28, height: 28 }} /></div>
-          ) : filteredTx.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">📋</div>
-              <h3>{t.noTx}</h3>
-              <p>{t.addFirstTx}</p>
-            </div>
-          ) : (
-            <div className="card">
-              {txWithRunning.map((tx, i) => (
-                <TxItem key={tx.id} tx={tx} index={i} onDelete={() => deleteTransaction(tx)} formatDate={formatDate} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Delete Customer */}
-        <div style={{ paddingBottom: '20px' }}>
-          {!showDeleteConfirm ? (
-            <button className="btn btn-danger btn-sm" style={{ width: '100%' }} onClick={() => setShowDeleteConfirm(true)}>
-              🗑️ {t.deleteCustomer}
-            </button>
-          ) : (
-            <div className="card" style={{ borderColor: 'rgba(239,68,68,0.3)', textAlign: 'center' }}>
-              <p style={{ color: 'var(--red-soft)', marginBottom: '14px', fontSize: '0.875rem' }}>
-                {t.deleteCustomerConfirm}
-              </p>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button className="btn btn-outline" onClick={() => setShowDeleteConfirm(false)} style={{ flex: 1 }}>{t.no}</button>
-                <button className="btn btn-danger" onClick={deleteCustomer} style={{ flex: 1 }}>{t.yes}</button>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
-      <button className="fab" onClick={() => setShowTxModal(true)}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a0533" strokeWidth="2.5">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
+      {/* Fixed Bottom Action Bar */}
+      <div className="bottom-action-bar">
+        <button className="action-btn btn-given" onClick={() => setTxModalType('debit')}>
+          <span className="action-icon">🔴</span>
+          <div className="action-text">
+            <span className="action-title">You Gave</span>
+            <span className="action-sub">Customer Got</span>
+          </div>
+        </button>
+        <button className="action-btn btn-received" onClick={() => setTxModalType('credit')}>
+          <span className="action-icon">🟢</span>
+          <div className="action-text">
+            <span className="action-title">You Got</span>
+            <span className="action-sub">Customer Gave</span>
+          </div>
+        </button>
+      </div>
 
-      {showTxModal && <AddTransactionModal onClose={() => setShowTxModal(false)} onAdd={addTransaction} customerName={customer.name} />}
+      {/* Modals */}
+      {txModalType && (
+        <AddTransactionModal
+          onClose={() => setTxModalType(null)}
+          onAdd={addTransaction}
+          customerName={customer.name}
+          defaultType={txModalType}
+        />
+      )}
       {showEditModal && <EditCustomerModal onClose={() => setShowEditModal(false)} onSave={editCustomer} customer={customer} />}
       {showUPIModal && <UPIQRModal onClose={() => setShowUPIModal(false)} customerName={customer.name} amount={Math.abs(bal) > 0 ? Math.abs(bal) : ''} />}
       {showInterestModal && <InterestModal onClose={() => setShowInterestModal(false)} defaultPrincipal={Math.abs(bal) > 0 ? Math.abs(bal) : ''} />}
+
+      <style>{`
+        .chat-header {
+          display: flex; align-items: center; padding: 10px 16px;
+          background: white; border-bottom: 1px solid var(--border);
+          position: sticky; top: 0; z-index: 10;
+        }
+        .header-user { display: flex; align-items: center; flex: 1; margin-left: 10px; cursor: pointer; }
+        .header-avatar {
+          width: 36px; height: 36px; border-radius: 50%;
+          background: var(--bg-surface); color: var(--text-primary);
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 600; margin-right: 10px;
+        }
+        .header-name { font-weight: 700; font-size: 1rem; }
+        .header-status { font-size: 0.75rem; color: var(--text-muted); }
+
+        .balance-summary-card {
+          background: white; padding: 16px; border-radius: 12px; margin-bottom: 20px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .bs-label { font-size: 0.9rem; color: var(--text-muted); }
+        .bs-amount { font-size: 1.2rem; font-weight: 700; }
+        .bs-amount.positive { color: var(--green-light); }
+        .bs-amount.negative { color: var(--red-soft); }
+        .bs-footer { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+        /* Chat Styles */
+        .date-pill { display: flex; justify-content: center; margin: 16px 0; }
+        .date-pill span {
+          background: #e5e7eb; color: #555; padding: 4px 12px;
+          border-radius: 12px; font-size: 0.75rem; font-weight: 600;
+        }
+
+        .chat-bubble {
+          max-width: 80%; padding: 10px 14px; margin-bottom: 12px;
+          border-radius: 12px; position: relative; font-size: 0.9rem;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .chat-bubble.given {
+           margin-left: auto; background: #fee2e2; color: #7f1d1d;
+           border-bottom-right-radius: 2px;
+        }
+        .chat-bubble.received {
+           margin-right: auto; background: #dcfce7; color: #14532d;
+           border-bottom-left-radius: 2px;
+        }
+        
+        .chat-amount { font-weight: 700; font-size: 1.1rem; display: block; margin-bottom: 4px; }
+        .chat-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; opacity: 0.8; }
+        
+        .bottom-action-bar {
+          position: fixed; bottom: 0; left: 0; right: 0;
+          background: white; border-top: 1px solid var(--border);
+          padding: 12px 16px; display: flex; gap: 12px;
+          z-index: 20; box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
+        }
+        .action-btn {
+          flex: 1; border: none; padding: 10px; border-radius: 8px;
+          display: flex; align-items: center; justify-content: center; gap: 8px;
+          cursor: pointer; transition: transform 0.1s;
+        }
+        .action-btn:active { transform: scale(0.98); }
+        .btn-given { background: #fee2e2; color: #ef4444; }
+        .btn-received { background: #dcfce7; color: #22c55e; }
+        .action-text { text-align: left; line-height: 1.2; }
+        .action-title { display: block; font-weight: 700; font-size: 0.9rem; }
+        .action-sub { display: block; font-size: 0.7rem; opacity: 0.8; }
+        .action-icon { font-size: 1.2rem; }
+
+      `}</style>
     </div>
   );
 }
 
-function TxItem({ tx, index, onDelete, formatDate }) {
-  const [showConfirm, setShowConfirm] = useState(false);
-
+function TxItem({ tx, index, onDelete }) {
+  const isGiven = tx.type === 'credit';
   return (
-    <div className="tx-item" style={{ animationDelay: `${index * 0.03}s` }}>
-      <div className={`tx-icon ${tx.type}`}>
-        {tx.type === 'credit' ? '⬇️' : '⬆️'}
+    <div className={`chat-bubble ${isGiven ? 'given' : 'received'}`} onClick={onDelete}>
+      <span className="chat-amount">₹{tx.amount?.toLocaleString('en-IN')}</span>
+      <div className="chat-content">
+        {tx.note && <div style={{ marginBottom: 4 }}>{tx.note}</div>}
       </div>
-      <div className="tx-details">
-        <div className="tx-note">{tx.note || (tx.type === 'credit' ? 'Unhone diya' : 'Tumne diya')}</div>
-        <div className="tx-date">{formatDate(tx)}</div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <div style={{ textAlign: 'right' }}>
-          <div className={`tx-amount ${tx.type === 'credit' ? 'amount-get' : 'amount-give'}`}>
-            {tx.type === 'credit' ? '+' : '-'}₹{tx.amount?.toLocaleString('en-IN')}
-          </div>
-          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-            Bal: ₹{tx.runningBalance?.toLocaleString('en-IN') || 0}
-          </div>
-        </div>
-        {!showConfirm ? (
-          <button onClick={() => setShowConfirm(true)} className="del-btn" title="Delete">🗑️</button>
-        ) : (
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button onClick={() => setShowConfirm(false)} className="del-btn" style={{ background: 'var(--bg-surface)' }}>✗</button>
-            <button onClick={onDelete} className="del-btn" style={{ background: 'rgba(239,68,68,0.2)' }}>✓</button>
-          </div>
-        )}
+      <div className="chat-meta">
+        <span>{new Date(tx.createdAt?.toDate ? tx.createdAt.toDate() : tx.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+        <span>{isGiven ? '↗' : '↙'}</span>
       </div>
     </div>
   );
 }
 
-// Enhanced Edit Modal with tag + dueDate
 function EditCustomerModal({ onClose, onSave, customer }) {
   const [name, setName] = useState(customer.name || '');
   const [phone, setPhone] = useState(customer.phone || '');
