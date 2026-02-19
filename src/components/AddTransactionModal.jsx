@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
-export default function AddTransactionModal({ onClose, onAdd, customerName }) {
-  const [type, setType] = useState('credit'); // credit = unhone diya, debit = humne diya
+export default function AddTransactionModal({ onClose, onAdd, customerName, defaultType }) {
+  const [type, setType] = useState(defaultType || 'credit'); // credit = unhone diya, debit = humne diya
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
